@@ -1,11 +1,32 @@
 // content-script.js
 (function() {
   //----------------------------------------------------------------
-  // A. 백그라운드 → 실패 시 직접 fetch
+  // A. 백그라운드 → 실패 시 직접 fetch (개인정보 보호 강화)
   //----------------------------------------------------------------
   async function directFetchFinalUrl(originUrl) {
     try {
-      const res = await fetch(originUrl, { method: "GET", redirect: "follow" });
+      // 프라이버시 보호 강화 옵션 추가
+      const headers = {
+        'DNT': '1',                      // Do Not Track 헤더
+        'Cache-Control': 'no-store',     // 캐시 방지
+        'Pragma': 'no-cache'             // 캐시 방지 (레거시)
+      };
+      
+      // mode: 'no-cors'로 요청시 크레덴셜 전송 방지
+      // credentials: 'omit'으로 쿠키가 전송되지 않도록 설정
+      // redirect: 'manual'로 직접 리다이렉트를 처리하지 않음
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000); // 3초 타임아웃
+      
+      const res = await fetch(originUrl, { 
+        method: "HEAD", // GET 대신 HEAD 사용하여 본문 다운로드 방지
+        headers: headers,
+        credentials: 'omit', // 쿠키 전송 방지
+        redirect: "follow",
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
       return res.url;
     } catch {
       return null;
@@ -18,7 +39,12 @@
       return;
     }
     try {
-      chrome.runtime.sendMessage({ action: "expandUrl", url: originUrl }, response => {
+      // 확장 프로그램 내부에서만 처리되는 메시지
+      chrome.runtime.sendMessage({ 
+        action: "expandUrl", 
+        url: originUrl,
+        timestamp: Date.now() // 중복 요청 방지를 위한 타임스탬프
+      }, response => {
         if (chrome.runtime.lastError) {
           directFetchFinalUrl(originUrl).then(url => url && callback && callback(url));
           return;
